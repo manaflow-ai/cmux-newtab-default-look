@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/newtab-default-look",
+  "name": "Default New Tab",
+  "tagline": "A new-session screen: where the chat starts and what needs you over the composer, your five latest chats as quiet rows.",
+  "description": "cmux's Default New Tab page, rebuilt as a look on the public customization API: a cmux.newtab/1 view that draws the whole New Tab page, picked with tabs.newTabApp. Remove it and cmux's own New Tab page comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-newtab-default-look",
+  "screenshots": ["screenshots/after-attention-light.png", "screenshots/after-attention-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "tabs.newTabApp": "local/customize"
+  }
+}

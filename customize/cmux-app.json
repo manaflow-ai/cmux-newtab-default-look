@@ -1,0 +1,22 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Default New Tab" },
+  "version": "1.0.0",
+  "description": "The Default New Tab page: the environment and suggestions cards over the composer, and the five most recent chats as quiet rows.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/local/customize",
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderNewTab", "title": "Default", "symbol": "rectangle.bottomthird.inset.filled" }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your recent agent chats and the ones that need you.",
+    "project:read": "List this Mac's recent projects in the environment card.",
+    "actions:run": "Start a chat from the field, open a chat you click, choose a folder.",
+    "workspace:write": "Show a chat's workspace when you click its row."
+  },
+  "activation": ["onInterface:cmux.newtab/1"],
+  "files": ["main.js"]
+}
