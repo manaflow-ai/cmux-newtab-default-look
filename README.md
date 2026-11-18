@@ -5,9 +5,9 @@
 ![The Default New Tab page: the environment and suggestions cards, recent chats, the composer](screenshots/after-attention-light.png)
 
 cmux's Default New Tab page, as a look you install, laid out like Claude's desktop new-session
-screen: over the composer, centered, the environment card (the folder the chat starts in, this
-Mac's other recent projects, Choose environment) and the suggestions card (the chats that need
-you), then your five most recent chats as quiet rows.
+screen: centered, the environment card (the folder the chat starts in, this Mac's other recent
+projects, Choose environment) and the suggestions card (the chats that need you), then "Chats"
+with five chats as quiet rows (the ones that need you first), and the composer.
 
 It used to ship inside cmux as a New Tab template. It is now built only on the public
 customization API, so you can read and change every part of it:
@@ -36,10 +36,12 @@ The look follows cmux's own page as far as the API reaches today. What is still 
 tracked in the cmux repository and lands there, not here:
 
 - cmux's own composer as a view node, with a folder the view can set (the environment card's rows
-  pick it) and its footer (mode, model, effort). Until then the field is a plain text field that
-  starts a chat with `newTab.submit`, in a new tab, and a row only marks the folder.
+  pick it) and its footer (permission mode, model). Until then the field is a plain text field that
+  starts a chat with `newTab.submit`, and a row only marks the folder the label over the field shows.
 - cmux's project chooser for Choose environment (search, a typed path, Browse, No project).
 - The page's height for the view, so the composer sits at the page's foot; until then it follows
   the cards.
 - Recent chats and the chats that need you, read and ordered by cmux itself, with each chat's last
-  reply; the rows' hover card; an agent's own mark; the cards' raised surface and shadow.
+  reply; the rows' hover card; an agent's own mark (a view gets the chat glyph); the cards' raised
+  surface and shadow.
+- With no chats, cmux's page shows placeholder rows while it reads; the look says "No chats yet".

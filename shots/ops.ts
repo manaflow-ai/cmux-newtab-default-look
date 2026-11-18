@@ -109,29 +109,35 @@ for (const [variant, chats] of Object.entries(VARIANTS)) {
     reads.push(params)
     // The shape of a host with recent reads (GAPS.md G1): newest first, cut to `limit`.
     const sorted = [...rows].sort((a, b) => b.updated_ms - a.updated_ms)
-    return { ok: true, body: { chats: typeof params?.limit === "number" ? sorted.slice(0, params.limit) : sorted } }
+    return { ok: true, body: { value: { chats: typeof params?.limit === "number" ? sorted.slice(0, params.limit) : sorted } } }
   }
-  host.handlers["agent_cli.list"] = () => ({ ok: true, body: { agents: [{ id: "claude", name: "Claude Code" }, { id: "codex", name: "Codex" }] } })
+  host.handlers["agent_cli.list"] = () => ({ ok: true, body: { value: { agents: [{ id: "claude", name: "Claude Code" }, { id: "codex", name: "Codex" }] } } })
   host.handlers["project.list"] = (params: any) => ({
     ok: true,
+    // cmux.call resolves with the reply's `value` (ABI.md: ok replies are {"value", ...}).
     body: {
-      projects: PROJECTS.slice(0, params?.limit ?? PROJECTS.length).map((p, i) => ({
-        path: p,
-        name: project(p),
-        last_used_ms: String(NOW - i * 3600 * 1000),
-        sources: {},
-        overlay: {},
-        state: "present",
-      })),
-      sources: [],
+      value: {
+        projects: PROJECTS.slice(0, params?.limit ?? PROJECTS.length).map((p, i) => ({
+          path: p,
+          name: project(p),
+          last_used_ms: String(NOW - i * 3600 * 1000),
+          sources: {},
+          overlay: {},
+          state: "present",
+        })),
+        sources: [],
+      },
     },
   })
-  host.fallback = () => ({ ok: true, body: {} })
+  host.fallback = () => ({ ok: true, body: { value: {} } })
   host.mount("m1", exportName, { surface: "newTab", cwd: CWD })
   await host.settle(20)
   const batches = host.batches("m1")
   const errors = host.logs.filter(([level]) => level === "error")
   writeFileSync(path.join(out, `${variant}.json`), JSON.stringify({ variant, cwd: CWD, reads, batches }))
   console.log(JSON.stringify({ variant, chats: rows.length, batches: batches.length, ops: batches.flat().length, reads, errors }))
-  if (!batches.length || errors.length) process.exitCode = 1
+  // A read the look could not use draws its error state, not a log: a shot of that is no shot.
+  const failedRead = JSON.stringify(batches).includes("Cannot read")
+  if (failedRead) console.error(`${variant}: the look drew "Cannot read ..."; the fixtures answer in a shape it cannot read`)
+  if (!batches.length || errors.length || failedRead) process.exitCode = 1
 }

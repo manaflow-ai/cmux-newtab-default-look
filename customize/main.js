@@ -24,7 +24,9 @@ const [cwd, setCwd] = signal(null)
 const message = (e) => (e instanceof Error ? e.message : (e && e.message) || String(e))
 const lastActivity = (c) => Math.max(c.updated_ms || 0, c.since_ms || 0, c.created_ms || 0)
 const needsYou = (c) => c.state === "input" || c.state === "failed" || c.state === "lost"
-const folderName = (path) => (path || "").replace(/\/+$/, "").split("/").pop() || path || ""
+const folderName = (path) => (path || "").replace(/\/+$/, "").split("/").pop() || "No folder"
+const need = (c) => (c.state === "input" ? 0 : needsYou(c) ? 1 : 2)
+const byNeed = (list) => [...list].sort((a, b) => need(a) - need(b) || lastActivity(b) - lastActivity(a))
 
 // The recent chats and the ones that need you, newest first. A host with server-side reads (limit,
 // state) cuts and orders them; an older one answers every chat, which this look orders and cuts.
@@ -53,8 +55,11 @@ async function load() {
   reading = true
   try {
     const { recent, waiting } = await readChats()
-    setChats(recent)
-    setAttention(waiting)
+    // As cmux's page orders them: the chats that need you first (needs input, then failed), then
+    // the rest newest first.
+    const ordered = byNeed([...waiting, ...recent.filter((c) => !waiting.some((w) => w.id === c.id))])
+    setChats(ordered.slice(0, RECENT))
+    setAttention(byNeed(waiting))
     setNow(Date.now())
     setError(null)
   } catch (e) {
@@ -91,11 +96,14 @@ function age(ms) {
 function stateOf(c) {
   if (c.state === "input") return { text: "Needs input", tone: "warning" }
   if (c.state === "failed" || c.state === "lost") return { text: "Failed", tone: "danger" }
-  if (c.state === "working") return { text: "Working", tone: "secondary" }
+  if (c.state === "working") return { text: "Running", tone: "secondary" }
+  if (c.unread) return { text: "Unread", tone: "secondary" }
   return null
 }
 
-const markOf = (harness) => (harness === "codex" ? "terminal" : "sparkle")
+// The agent's mark. Scene icons are cmux's icon pack, which has no agent logos yet (GAPS.md), so
+// every agent gets the chat glyph.
+const markOf = () => "agent.chat"
 
 async function start() {
   const text = draft().trim()
@@ -119,14 +127,14 @@ async function open(chat) {
 
 // A row of a stage card: an icon, the text, a quiet detail, a check. A wash only on hover.
 function stageRow({ symbol, text, detail, detailTone, checked, help, onTap }) {
-  return HStack({ spacing: 8 }, [
-    Icon(symbol).size(14).color("tertiary").frame({ width: 16, height: 16 }),
-    Text(text).font(13).color("secondary").lineLimit(1),
+  return HStack({ spacing: 10 }, [
+    symbol ? Icon(symbol).size(15).color("secondary").frame({ width: 16, height: 16 }) : null,
+    Text(text).font(15).color(symbol ? "secondary" : "primary").lineLimit(1),
     Spacer(),
-    detail ? Text(detail).font("caption").color(detailTone || "tertiary").lineLimit(1).fixedSize("horizontal") : null,
+    detail ? Text(detail).font(13).color(detailTone || "tertiary").lineLimit(1).fixedSize("horizontal") : null,
     checked !== undefined ? Text(checked ? "✓" : "").font(13).color("primary").frame({ width: 14 }) : null
   ])
-    .paddingHorizontal(8)
+    .paddingHorizontal(10)
     .frame({ height: 32 })
     .cornerRadius(6)
     .hoverBackground("hover")
@@ -142,19 +150,19 @@ function environmentCard(ctx) {
     () =>
       current()
         ? stageRow({ symbol: "folder", text: folderName(current()), detail: "This Mac", checked: true, help: current(), onTap: () => setCwd(current()) })
-        : stageRow({ symbol: "folder", text: "No project", checked: true, onTap: () => setCwd(null) }),
+        : stageRow({ symbol: "folder", text: "No folder", checked: true, onTap: () => setCwd(null) }),
     ForEach({ items: () => projects().filter((p) => p.cwd !== current()).slice(0, OTHER_PROJECTS), key: (p) => p.cwd }, (p) =>
       stageRow({ symbol: "folder", text: () => p().name, detail: "This Mac", checked: false, help: () => p().cwd, onTap: () => setCwd(p().cwd) })
     ),
-    Divider().padding({ top: 4, bottom: 4 }),
+    Divider(),
     stageRow({
-      symbol: "folder",
+      symbol: null,
       text: "Choose environment",
       onTap: () => cmux.actions.run("palette.newAgentChat", current() ? { cwd: current() } : {}).catch((e) => cmux.toast({ title: "Cannot choose a folder", message: message(e), tone: "warning" }))
     })
   ])
     .cornerRadius(14)
-    .frame({ maxWidth: 440 })
+    .frame({ width: 440 })
 }
 
 // The chats that need you: needs input, failed, or lost its agent.
@@ -165,7 +173,7 @@ function suggestionsCard() {
           ForEach({ items: attention, key: (c) => c.id }, (c) => {
             const s = () => stateOf(c()) || { text: "", tone: "tertiary" }
             return stageRow({
-              symbol: "bubble.left",
+              symbol: "agent.chat",
               text: () => c().title,
               detail: () => s().text,
               detailTone: () => s().tone,
@@ -175,53 +183,75 @@ function suggestionsCard() {
           })
         ])
           .cornerRadius(14)
-          .frame({ maxWidth: 440 })
+          .frame({ width: 440 })
       : null
 }
 
-// The recent chats as quiet rows: the title, its last reply, the age and the agent.
+// "Chats" with All Chats across from it, then the recent chats as quiet rows: the title, what it
+// waits on or its last reply, the agent and the age.
 function recentRows() {
-  return VStack({ spacing: 2 }, [
+  return VStack({ spacing: 0, alignment: "leading" }, [
+    HStack({ spacing: 12 }, [
+      Text("Chats").font(15).weight("semibold").color("primary"),
+      Spacer(),
+      Button(HStack({ spacing: 4 }, [Text("All Chats").font(13), Icon("nav.forward").size(11)]), () =>
+        cmux.actions.run("search.chats").catch((e) => cmux.toast({ title: "Cannot show all chats", message: message(e), tone: "warning" }))
+      ).color("tertiary")
+    ]).frame({ height: 40 }),
+    () => (loaded() && !error() && chats().length === 0 ? Text("No chats yet").font(13).color("tertiary").padding({ top: 8 }) : null),
     ForEach({ items: chats, key: (c) => c.id }, (c) => {
       const s = () => stateOf(c())
       const line = () => (s() ? s().text : c().preview || "")
       return HStack({ spacing: 8 }, [
-        Text(() => c().title).font(13).weight("medium").color("primary").lineLimit(1).layoutPriority(1),
-        Text(line).font(12).color(() => (s() ? s().tone : "tertiary")).lineLimit(1),
+        Text(() => c().title).font(15).weight("semibold").color("primary").lineLimit(1).layoutPriority(1),
+        Text(line).font(13).color(() => (s() ? s().tone : "tertiary")).lineLimit(1),
         Spacer(),
-        Icon(() => markOf(c().harness)).size(13).color("tertiary"),
-        Text(() => age(lastActivity(c()))).font("caption").color("tertiary").monospaced().frame({ width: 34 })
+        Icon(() => markOf(c().harness)).size(15).color("tertiary"),
+        Text(() => age(lastActivity(c()))).font(13).color("tertiary").monospaced().frame({ width: 34, alignment: "trailing" })
       ])
-        .paddingHorizontal(8)
-        .frame({ height: 30 })
+        .frame({ height: 32 })
         .cornerRadius(8)
         .hoverBackground("hover")
         .cursor("pointer")
         .help(() => [c().title, c().cwd].filter(Boolean).join("\n"))
         .onTap(() => open(c()))
     })
-  ]).frame({ maxWidth: 440 })
+  ]).frame({ maxWidth: "infinity" })
 }
 
-// The composer at the foot: the field and Send, the folder and the agent under it.
-function composer(ctx) {
-  const where = () => folderName(cwd() || ctx.cwd) || "No project"
-  return Panel({ style: "card", spacing: 6 }, [
-    HStack({ spacing: 8 }, [
-      TextField(draft, { placeholder: "Ask anything", autofocus: true, onEdit: setDraft, onSubmit: start }).font(14),
-      Button(Icon("arrow.up").size(13), start)
-        .frame({ width: 28, height: 28 })
-        .cornerRadius(14)
-        .background(() => (draft().trim() ? "primary" : "hover"))
-        .color(() => (draft().trim() ? "#FFFFFF" : "tertiary"))
-        .help("Send")
-    ]).frame({ minHeight: 44 }),
-    HStack({ spacing: 10 }, [
-      HStack({ spacing: 4 }, [Icon("folder").size(12).color("tertiary"), Text(where).font("caption").color("secondary").lineLimit(1)]),
-      Spacer()
-    ])
+// Over the field: the folder the chat starts in (the environment card's pick) and the machine.
+function place(ctx) {
+  const where = () => folderName(cwd() || ctx.cwd)
+  return HStack({ spacing: 20 }, [
+    HStack({ spacing: 6 }, [Icon("folder").size(14).color("secondary"), Text(where).font(14).color("secondary").lineLimit(1)]),
+    HStack({ spacing: 6 }, [Icon("machine.local").size(14).color("secondary"), Text("This Mac").font(14).color("secondary")]),
+    Spacer()
   ])
-    .cornerRadius(16)
+    .paddingHorizontal(18)
+    .frame({ maxWidth: "infinity" })
+}
+
+// The composer: one rounded field with the prompt and Send.
+function composer() {
+  return Panel({ style: "card" }, [
+    HStack({ spacing: 12 }, [
+      Icon("action.add").size(16).color("secondary"),
+      TextField(draft, { placeholder: "Ask anything or type a URL", autofocus: true, onEdit: setDraft, onSubmit: start })
+        .font(15)
+        .frame({ maxWidth: "infinity" }),
+      Spacer(),
+      Button(Icon("composer.send").size(15), start)
+        .frame({ width: 30, height: 30 })
+        .cornerRadius(15)
+        .background(() => (draft().trim() ? "primary" : "#00000000"))
+        .color(() => (draft().trim() ? "#FFFFFF" : "secondary"))
+        .help("Send")
+    ])
+      .paddingHorizontal(16)
+      .frame({ minHeight: 36 })
+  ])
+    .cornerRadius(999)
+    .frame({ maxWidth: "infinity" })
 }
 
 function renderNewTab(ctx) {
@@ -230,14 +260,15 @@ function renderNewTab(ctx) {
   loadProjects()
   cmux.events.on("agent_chat.changed", load)
   cmux.timer.every(30000, () => setNow(Date.now()))
-  return VStack({ spacing: 12, alignment: "center" }, [
-    environmentCard(ctx),
-    suggestionsCard(),
+  return VStack({ spacing: 12, alignment: "leading" }, [
+    HStack({ spacing: 0 }, [Spacer(), environmentCard(ctx), Spacer()]),
+    HStack({ spacing: 0 }, [Spacer(), suggestionsCard(), Spacer()]),
     () => (error() ? EmptyState({ title: "Cannot read your chats", message: error(), symbol: "exclamationmark.triangle" }) : null),
-    recentRows(),
+    recentRows().padding({ top: 8 }),
     // The stage's free space; the composer at the page's foot once the page gives the scene its height.
-    Spacer().frame({ minHeight: 24 }),
-    composer(ctx)
+    Spacer().frame({ minHeight: 8 }),
+    place(ctx),
+    composer()
   ])
 }
 
